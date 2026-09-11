@@ -48,13 +48,17 @@ def _build_prompt(
         f'{(e.get("event_description", "") or "")[:300]}'
         for e in evidence[:MAX_EVIDENCE_SAMPLES]
     )
-    if related_documents:
-        documents_text = "\n".join(
+    internal_docs = [d for d in related_documents if d.get("document_class") != "public_external_regulatory_reference"]
+    external_docs = [d for d in related_documents if d.get("document_class") == "public_external_regulatory_reference"]
+
+    def _format_docs(docs: list[dict]) -> str:
+        return "\n".join(
             f'- {d.get("document_id", "")} ({d.get("document_type", "")}): {d.get("qms_reference", "")}'
-            for d in related_documents
+            for d in docs
         )
-    else:
-        documents_text = "(none on file for this device_code)"
+
+    internal_text = _format_docs(internal_docs) if internal_docs else "(none on file for this device_code)"
+    external_text = _format_docs(external_docs) if external_docs else "(none on file for this device_code)"
 
     recalls_text = f"{regulatory_summary.get('recall_total', 0)} total recalls on file"
     classification = regulatory_summary.get("classification") or {}
@@ -71,12 +75,19 @@ def _build_prompt(
         f"Regulatory context: device class {classification.get('device_class', 'unknown')}, "
         f"{recalls_text}.\n\n"
         f"Example complaint evidence (up to {MAX_EVIDENCE_SAMPLES} samples):\n{evidence_text}\n\n"
-        f"Existing QMS documents on file for this device_code:\n{documents_text}\n\n"
+        f"Internal QMS documents on file for this device_code (the manufacturer's own "
+        f"controlled records):\n{internal_text}\n\n"
+        f"External public regulatory references on file for this device_code (FDA recall "
+        f"records, safety communications, 510(k)s, etc. -- these are NOT the manufacturer's "
+        f"own internal documents; never describe them as if they were a CAPA, PMS/PSUR, SOP, "
+        f"or risk-management record):\n{external_text}\n\n"
         "Respond as a JSON object with exactly these fields:\n"
         '  "summary": a 2-4 sentence neutral summary of the finding and evidence, '
         "for a reviewer who hasn't seen any of this yet.\n"
         '  "documents_to_review": a list of strings naming which existing documents '
-        "(by document_id, if any were listed) seem most relevant to review, or an "
+        "(by document_id, if any were listed) seem most relevant to review -- when citing "
+        "an external reference, keep it clearly labeled as external/public evidence, not an "
+        "internal QMS record -- or an "
         "empty list if none apply or none exist.\n"
         '  "suggested_next_steps": a list of 1-4 short strings suggesting what a '
         'human reviewer might want to check or do next -- phrase each as a '

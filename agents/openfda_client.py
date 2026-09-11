@@ -5,6 +5,7 @@ gudid_client.py, and any future endpoint). Keeps retry/backoff, rate-limit
 budgeting, and the anonymous-vs-keyed page-size quirk in one place.
 """
 
+import re
 import sys
 import time
 
@@ -45,6 +46,23 @@ def page_limit(api_key: str | None) -> int:
     return PAGE_LIMIT_WITH_KEY if api_key else PAGE_LIMIT_NO_KEY
 
 
+def _raise_with_openfda_error(response: requests.Response) -> None:
+    """requests' default raise_for_status() only says '403 Client Error:
+    Forbidden' -- it drops openFDA's actual JSON error body, which is the
+    part that says *why* (e.g. API_KEY_INVALID vs API_KEY_MISSING vs
+    rate-limit). Surface that instead so a failure is actually
+    diagnosable from the traceback alone."""
+    try:
+        detail = response.json().get("error", {})
+        message = f"{detail.get('code', 'UNKNOWN')}: {detail.get('message', response.text[:300])}"
+    except (ValueError, AttributeError):
+        message = response.text[:300]
+    # Redact api_key from the URL before it ever reaches a traceback/log/chat --
+    # the caller's key must never end up in plaintext output.
+    safe_url = re.sub(r"api_key=[^&]+", "api_key=***REDACTED***", response.url)
+    raise RuntimeError(f"openFDA request failed ({response.status_code} {safe_url}): {message}")
+
+
 def api_get(base_url: str, params: dict, api_key: str | None, budget: RequestBudget) -> dict:
     """GET one page from an openFDA endpoint with basic retry/backoff on
     rate limiting.
@@ -66,12 +84,14 @@ def api_get(base_url: str, params: dict, api_key: str | None, budget: RequestBud
 
         if response.status_code == 429 or response.status_code >= 500:
             if attempt == max_retries - 1:
-                response.raise_for_status()
+                _raise_with_openfda_error(response)
             time.sleep(backoff)
             backoff *= 2
             continue
 
-        response.raise_for_status()
+        if response.status_code >= 400:
+            _raise_with_openfda_error(response)
+
         time.sleep(REQUEST_DELAY_SECONDS)
         return response.json()
 

@@ -60,6 +60,12 @@ class DocumentImpactAgent(DenominatorAgent):
         document_map_rows = inputs.get("document_map_rows", [])
 
         related_documents = [d for d in document_map_rows if d.get("device_code") == device_code]
+        related_internal_documents = [
+            d for d in related_documents if d.get("document_class") != "public_external_regulatory_reference"
+        ]
+        related_external_references = [
+            d for d in related_documents if d.get("document_class") == "public_external_regulatory_reference"
+        ]
 
         draft_content, llm_calls, prompt_tokens, completion_tokens = generate_document_impact(
             device_code,
@@ -79,16 +85,23 @@ class DocumentImpactAgent(DenominatorAgent):
                 "recall_total": regulatory_context.get("recall_total"),
                 "classification": regulatory_context.get("classification"),
             },
-            "related_documents": related_documents,
+            # Kept separate deliberately -- an external FDA reference (recall record,
+            # safety communication, 510(k)) must never be presented as if it were one
+            # of the manufacturer's own internal QMS records. See data/README.md.
+            "related_internal_documents": related_internal_documents,
+            "related_external_references": related_external_references,
             "evidence_sample_count": min(len(records), 5),
             "draft": draft_content,
             "human_decision_required": True,
         }
 
+        rate_pct = rate_summary.get("rate_pct")
+        rate_display = f"{rate_pct:.4f}" if rate_pct is not None else "N/A"
         notes = (
             f"Drafted Safety Action Pack (status=DRAFT) for {device_code}: "
-            f"rate {rate_summary.get('rate_pct')}%, exceeds_threshold={rate_summary.get('exceeds_threshold')}, "
-            f"{len(related_documents)} related QMS document(s) on file, "
+            f"rate {rate_display}%, exceeds_threshold={rate_summary.get('exceeds_threshold')}, "
+            f"{len(related_internal_documents)} internal QMS document(s) and "
+            f"{len(related_external_references)} external regulatory reference(s) on file, "
             f"{llm_calls} OpenAI call(s) made ({prompt_tokens} prompt / {completion_tokens} completion tokens; "
             "0 if served from cache). No DISMISS/INVESTIGATE FURTHER/CONFIRM decision made -- requires human review."
         )

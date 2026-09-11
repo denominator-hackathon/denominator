@@ -1,1 +1,3 @@
-device_code,period_start,period_end,units_distributed,units_in_field
+device_code,period_start,period_end,units_distributed,units_in_field,rate_eligible,blocking_reason,data_status,source
+FRN,2024-01-01,2024-12-31,2000,2000,true,,synthetic_demo_only,"Denominator reproducibility fixture (FRN-EXP-DEMO-v1.0); synthetic value selected only to reproduce 20 / 2000 x 100 = 1.00%, not manufacturer shipments or installed base"
+FRN,2021-10-27,2023-01-30,1546,,false,"Recall-scope quantity is not annual distribution, active installed base, device-time, infusion count, or a denominator aligned to a complaint observation period",real_public_official,"FDA Class 1 Device Recall — Ivenix Infusion System (Z-1313-2023 / Event 91783), Quantity in Commerce; https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfres/res.cfm?id=198841"

@@ -91,6 +91,7 @@ def compute_rate(
     threshold_pct: float = DEMONSTRATION_THRESHOLD_PCT,
     rate_eligible: bool | None = None,
     blocking_reason: str = "",
+    event_category: str = "",
 ) -> RateResult:
     """Compute one device_code's complaint rate for one period.
 
@@ -144,8 +145,9 @@ def compute_rate(
 
     rate_pct = (complaint_count / units_distributed) * 100
     exceeds_threshold = rate_pct > threshold_pct
+    category_note = f" (event_category={event_category!r})" if event_category else " (all event categories -- no event_category filter set on this exposure row)"
     reason = (
-        f"{complaint_count} complaints / {units_distributed} units distributed = "
+        f"{complaint_count} complaints{category_note} / {units_distributed} units distributed = "
         f"{rate_pct:.4f}%. Demonstration threshold: {threshold_pct}%. {THRESHOLD_DISCLAIMER}"
     )
 
@@ -170,18 +172,34 @@ def count_complaints_in_period(
     period_end: date,
     device_code_field: str = "device_report_product_code",
     date_field: str = "date_received",
+    event_category: str = "",
+    event_category_field: str = "product_problems",
 ) -> int:
     """Count complaints matching a device_code whose date falls within
     [period_start, period_end]. Complaints with an unparseable/missing date
     are excluded from the count rather than guessed into or out of the
-    period."""
+    period.
+
+    If event_category is given, a complaint only counts when it also
+    appears in that complaint's event_category_field (semicolon-joined
+    product_problems text, from maude_client.flatten_record) -- this is
+    the fix for a real scope mismatch found in testing: an exposure row
+    scoped to one specific failure type (e.g. "Failure to Infuse") was
+    being compared against a numerator counting every complaint type,
+    producing an inflated, meaningless rate. Blank/absent event_category
+    preserves the old behavior of counting every complaint type -- this
+    is opt-in per exposure row, not a forced default.
+    """
     count = 0
     for complaint in complaints:
         if complaint.get(device_code_field, "") != device_code:
             continue
         received = _parse_record_date(complaint.get(date_field, ""))
-        if received is not None and period_start <= received <= period_end:
-            count += 1
+        if received is None or not (period_start <= received <= period_end):
+            continue
+        if event_category and event_category not in complaint.get(event_category_field, ""):
+            continue
+        count += 1
     return count
 
 
@@ -235,6 +253,7 @@ def compute_rates_for_exposure(
 
         rate_eligible = _parse_rate_eligible(exp.get("rate_eligible", ""))
         blocking_reason = exp.get("blocking_reason", "")
+        event_category = exp.get("event_category", "")
 
         baseline = _matching_baseline(device_code, period_start_raw, period_end_raw)
 
@@ -256,7 +275,7 @@ def compute_rates_for_exposure(
             continue
 
         count = count_complaints_in_period(
-            complaints, device_code, period_start, period_end, device_code_field, date_field
+            complaints, device_code, period_start, period_end, device_code_field, date_field, event_category
         )
         results.append(
             compute_rate(
@@ -269,6 +288,7 @@ def compute_rates_for_exposure(
                 threshold_pct,
                 rate_eligible,
                 blocking_reason,
+                event_category,
             )
         )
 

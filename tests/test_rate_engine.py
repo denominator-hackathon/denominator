@@ -178,3 +178,73 @@ def test_baseline_matched_by_period_not_just_device_code():
     by_period = {(r.period_start, r.period_end): r for r in results}
     assert by_period[("2024-01-01", "2024-01-31")].baseline_rate_pct == 0.4
     assert by_period[("2023-01-01", "2023-01-31")].baseline_rate_pct == 0.6
+
+
+def test_count_complaints_in_period_filters_by_event_category():
+    """The fix for a real scope mismatch found in testing: an exposure row
+    scoped to one failure type (e.g. Failure to Infuse) must not count
+    complaints of every other type against it."""
+    from datetime import date
+
+    complaints = [
+        {
+            "device_report_product_code": "FRN",
+            "date_received": "20240110",
+            "product_problems": "Failure to Infuse",
+        },
+        {
+            "device_report_product_code": "FRN",
+            "date_received": "20240111",
+            "product_problems": "Battery Problem;Failure to Infuse",  # multi-value field, still matches
+        },
+        {
+            "device_report_product_code": "FRN",
+            "date_received": "20240112",
+            "product_problems": "Alarm Malfunction",  # different category, must not count
+        },
+        {
+            "device_report_product_code": "FRN",
+            "date_received": "20240113",
+            "product_problems": "",  # blank, must not count when a category filter is set
+        },
+    ]
+    count_filtered = count_complaints_in_period(
+        complaints, "FRN", date(2024, 1, 1), date(2024, 1, 31), event_category="Failure to Infuse"
+    )
+    assert count_filtered == 2
+
+    count_unfiltered = count_complaints_in_period(complaints, "FRN", date(2024, 1, 1), date(2024, 1, 31))
+    assert count_unfiltered == 4
+
+
+def test_compute_rates_for_exposure_respects_event_category_column():
+    exposure_rows = [
+        {
+            "device_code": "FRN",
+            "period_start": "2024-01-01",
+            "period_end": "2024-01-31",
+            "units_distributed": "2000",
+            "event_category": "Failure to Infuse",
+        },
+    ]
+    complaints = [
+        {"device_report_product_code": "FRN", "date_received": "20240110", "product_problems": "Failure to Infuse"},
+        {"device_report_product_code": "FRN", "date_received": "20240111", "product_problems": "Alarm Malfunction"},
+    ]
+    results = compute_rates_for_exposure(complaints, exposure_rows)
+    assert results[0].complaint_count == 1  # only the matching category counted
+    assert "event_category='Failure to Infuse'" in results[0].reason
+
+
+def test_compute_rates_for_exposure_blank_event_category_counts_everything():
+    """Backward compatible: a row with no event_category set behaves
+    exactly as it did before this column existed."""
+    exposure_rows = [
+        {"device_code": "FRN", "period_start": "2024-01-01", "period_end": "2024-01-31", "units_distributed": "2000"},
+    ]
+    complaints = [
+        {"device_report_product_code": "FRN", "date_received": "20240110", "product_problems": "Failure to Infuse"},
+        {"device_report_product_code": "FRN", "date_received": "20240111", "product_problems": "Alarm Malfunction"},
+    ]
+    results = compute_rates_for_exposure(complaints, exposure_rows)
+    assert results[0].complaint_count == 2

@@ -18,7 +18,15 @@ import json
 
 from .llm_client import chat_json
 
-MAX_RECORDS_PER_LLM_CALL = 40
+MAX_RECORDS_PER_LLM_CALL = 150  # raised from 40 after a real run hit a 50-requests/day
+# OpenAI account cap -- gpt-4o-mini's context window comfortably fits far
+# larger batches than 40 records, so this cuts total call count ~4x for
+# the same work. See MAX_DESCRIPTION_CHARS below for the other half of
+# that fix (per-record prompt size, which is what actually bounds how far
+# batch size can be pushed before hitting output-token limits).
+MAX_DESCRIPTION_CHARS = 600  # narratives can run 3000+ chars; category signal
+# is reliably in the opening sentences, so truncating keeps per-record
+# prompt cost down without hurting classification quality
 
 PROBLEM_CATEGORIES = [
     "Over-Infusion / Excess Flow",
@@ -45,7 +53,9 @@ def _chunk_cache_key(chunk: list[dict]) -> str:
 def _build_prompt(chunk: list[dict]) -> str:
     categories_list = "\n".join(f"- {c}" for c in PROBLEM_CATEGORIES)
     items = "\n".join(
-        json.dumps({"mdr_report_key": r["mdr_report_key"], "text": r["event_description"]})
+        json.dumps(
+            {"mdr_report_key": r["mdr_report_key"], "text": r["event_description"][:MAX_DESCRIPTION_CHARS]}
+        )
         for r in chunk
     )
     return (

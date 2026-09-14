@@ -18,7 +18,10 @@ import re
 
 from .llm_client import chat_json
 
-MAX_PAIRS_PER_LLM_CALL = 20
+MAX_PAIRS_PER_LLM_CALL = 60  # raised from 20 after a real run hit a
+# 50-requests/day OpenAI account cap -- each item here is short (a brand/
+# manufacturer pair plus 3 short candidates), so a larger batch stays well
+# within gpt-4o-mini's context window while cutting total call count 3x
 CANDIDATE_COUNT = 3
 CANDIDATE_MIN_SCORE = 0.3
 

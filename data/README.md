@@ -42,6 +42,7 @@ complaints by its own `period_start`/`period_end`, never merged.
 | period_end | date (YYYY-MM-DD) | |
 | units_distributed | int | denominator input |
 | units_in_field | int | optional, not used in the rate calculation itself |
+| event_category | string, blank | **optional.** If set, only complaints whose `product_problems` text contains this string are counted against this row (substring match). Use this when the units_distributed figure was only ever scoped to one specific failure type (e.g. `Failure to Infuse`) — without it, the numerator counts *every* complaint type for the device, which can produce a wildly inflated, meaningless rate if the denominator was never meant to cover that broad a population. Blank/absent counts all complaint types, same as before this column existed. |
 | rate_eligible | `true`/`false`/blank | **optional.** If `false`, the rate engine refuses to compute a rate for this row regardless of whether units_distributed looks like a valid number — see `blocking_reason`. Blank/absent falls back to the plain missing-or-zero-denominator check. |
 | blocking_reason | string | **required if rate_eligible=false.** Why this real-looking number still can't be used as an exposure denominator (e.g. a recall's "Quantity in Commerce" isn't a time-aligned shipment/installed-base figure). Becomes the RateResult's `reason` field verbatim. |
 | data_status | string | e.g. `synthetic_demo_only`, `real_public_official`. Not read by code — documentation/audit trail only. |
@@ -88,6 +89,12 @@ arbitrary guess.
   missing or zero denominator, and must never compute against an
   exposure row marked `rate_eligible=false` — the rate engine refuses
   the calculation instead of guessing either way.
+- If an exposure row's `units_distributed` was only ever scoped to one
+  complaint type, set `event_category` to that type — otherwise the
+  numerator silently counts every complaint type against a denominator
+  that was never meant to cover that broad a population (confirmed live:
+  an unset event_category on a category-scoped fixture produced an
+  1,894% rate).
 - `document_map.status` must always start as `DRAFT`; nothing in this
   pipeline auto-publishes to QMS.
 - `document_map.document_class=public_external_regulatory_reference` rows
